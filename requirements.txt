@@ -3,5 +3,5 @@ uvicorn[standard]
 pydantic-settings
 python-dotenv
 sqlalchemy
-psycopg
+psycopg[binary]
 pytest
