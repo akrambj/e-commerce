@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.core.config import settings
+from app.core.config import get_settings
 from app.core.logging import setup_logging, get_logger
 from app.core.middleware import request_logging_middleware
 from app.infrastructure.db.session import db_ping
@@ -7,6 +7,8 @@ from app.infrastructure.db.session import db_ping
 setup_logging()
 logger = get_logger("startup")
 logger.info("Logging system initialized")
+
+settings = get_settings()
 
 app = FastAPI()
 app.middleware("http")(request_logging_middleware)

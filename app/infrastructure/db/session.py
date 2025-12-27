@@ -5,7 +5,9 @@ from collections.abc import Generator
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.config import settings
+from app.core.config import get_settings
+
+settings = get_settings()
 
 
 def _build_sqlalchemy_url(raw_url: str) -> str:

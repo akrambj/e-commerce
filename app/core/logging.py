@@ -4,9 +4,10 @@ import logging.config
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict
-from app.core.config import settings
+from app.core.config import get_settings
 
 
+settings = get_settings()
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         log_object: Dict[str, Any] = {
