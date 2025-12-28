@@ -1,2 +1,14 @@
-.venv
+# Environments
+.venv/
 .env
+
+# Python cache
+__pycache__/
+.pytest_cache/
+
+# Editor
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
