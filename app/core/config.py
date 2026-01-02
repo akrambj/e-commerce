@@ -11,9 +11,7 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     version: str = Field(default="1.0.0", alias="VERSION")
     database_url: str = Field(..., alias="DATABASE_URL")
-
-
-
+    test_database_url: str = Field(..., alias="TEST_DATABASE_URL") 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()  # type: ignore

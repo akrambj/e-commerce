@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional, Sequence, Tuple
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.infrastructure.db.models import Product, ProductImage  # adjust if your names differ
@@ -60,7 +61,6 @@ class ProductsRepository:
             stmt = stmt.where(Product.price <= max_price)
 
         if search:
-            # basic v1 search: name contains (case-insensitive)
             pattern = f"%{search.strip()}%"
             stmt = stmt.where(Product.name.ilike(pattern))
 
@@ -79,12 +79,6 @@ class ProductsRepository:
         max_price: Optional[int] = None,
         search: Optional[str] = None,
     ) -> Tuple[Sequence[Product], int]:
-        """
-        Returns (items, total).
-        Public rules:
-          - is_active = true
-          - deleted_at is null
-        """
         paging = Page(page=page, page_size=page_size)
 
         base_stmt = (
@@ -101,7 +95,6 @@ class ProductsRepository:
             search=search,
         )
 
-        # Total count (same filters, but count(*))
         count_stmt = (
             select(func.count())
             .select_from(Product)
@@ -116,7 +109,6 @@ class ProductsRepository:
         )
 
         total: int = session.execute(count_stmt).scalar_one()
-
         items_stmt = base_stmt.limit(paging.page_size).offset(paging.offset)
 
         items = session.execute(items_stmt).scalars().all()
@@ -128,10 +120,6 @@ class ProductsRepository:
         *,
         slug: str,
     ) -> Optional[Product]:
-        """
-        Public detail by slug.
-        Applies public visibility rules and eagerly loads images.
-        """
         stmt = (
             select(Product)
             .where(*self._public_visibility_filter())
@@ -143,6 +131,59 @@ class ProductsRepository:
 
     # ---------- admin reads ----------
 
+    def list_admin_products(
+        self,
+        session: Session,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        category: Optional[str] = None,
+        min_price: Optional[int] = None,
+        max_price: Optional[int] = None,
+        search: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        include_deleted: bool = False,
+    ) -> Tuple[Sequence[Product], int]:
+        paging = Page(page=page, page_size=page_size)
+
+        base_stmt = select(Product).order_by(Product.created_at.desc(), Product.id.desc())
+
+        if not include_deleted:
+            base_stmt = base_stmt.where(Product.deleted_at.is_(None))
+
+        if is_active is not None:
+            base_stmt = base_stmt.where(Product.is_active.is_(is_active))
+
+        base_stmt = self._apply_filters(
+            base_stmt,
+            category=category,
+            min_price=min_price,
+            max_price=max_price,
+            search=search,
+        )
+
+        count_stmt = select(func.count()).select_from(Product)
+
+        if not include_deleted:
+            count_stmt = count_stmt.where(Product.deleted_at.is_(None))
+
+        if is_active is not None:
+            count_stmt = count_stmt.where(Product.is_active.is_(is_active))
+
+        count_stmt = self._apply_filters(
+            count_stmt,
+            category=category,
+            min_price=min_price,
+            max_price=max_price,
+            search=search,
+        )
+
+        total: int = session.execute(count_stmt).scalar_one()
+
+        items_stmt = base_stmt.limit(paging.page_size).offset(paging.offset)
+        items = session.execute(items_stmt).scalars().all()
+        return items, total
+
     def get_product_by_id(
         self,
         session: Session,
@@ -150,12 +191,138 @@ class ProductsRepository:
         product_id: int,
         include_images: bool = True,
     ) -> Optional[Product]:
-        """
-        Admin fetch: returns product even if inactive or soft-deleted.
-        """
         stmt = select(Product).where(Product.id == product_id)
 
         if include_images:
             stmt = stmt.options(selectinload(Product.images))  # adjust relationship name if needed
 
         return session.execute(stmt).scalars().first()
+
+    def get_product_by_slug_any(
+        self,
+        session: Session,
+        *,
+        slug: str,
+    ) -> Optional[Product]:
+        stmt = select(Product).where(Product.slug == slug)
+        return session.execute(stmt).scalars().first()
+
+    # ---------- admin writes ----------
+
+    def create_product(
+        self,
+        session: Session,
+        *,
+        slug: str,
+        name: str,
+        description: Optional[str],
+        price: int,
+        category: str,
+        quantity: int,
+        thumbnail_url: str,
+        is_active: bool,
+        image_urls: Sequence[str],
+    ) -> Product:
+        product = Product(
+            slug=slug,
+            name=name,
+            description=description,
+            price=price,
+            category=category,
+            quantity=quantity,
+            thumbnail_url=thumbnail_url,
+            is_active=is_active,
+        )
+        session.add(product)
+        session.flush()
+
+        for idx, url in enumerate(image_urls):
+            session.add(
+                ProductImage(
+                    product_id=product.id,
+                    url=url,
+                    position=idx,
+                )
+            )
+
+        session.flush()
+        return product
+
+    def replace_product_images(
+        self,
+        session: Session,
+        *,
+        product_id: int,
+        image_urls: Sequence[str],
+    ) -> None:
+        session.execute(delete(ProductImage).where(ProductImage.product_id == product_id))
+
+        for idx, url in enumerate(image_urls):
+            session.add(
+                ProductImage(
+                    product_id=product_id,
+                    url=url,
+                    position=idx,
+                )
+            )
+
+        session.flush()
+
+    def update_product(
+        self,
+        session: Session,
+        *,
+        product: Product,
+        slug: str,
+        name: str,
+        description: Optional[str],
+        price: int,
+        category: str,
+        quantity: int,
+        thumbnail_url: str,
+        is_active: bool,
+        image_urls: Sequence[str],
+    ) -> Product:
+        product.slug = slug
+        product.name = name
+        product.description = description
+        product.price = price
+        product.category = category
+        product.quantity = quantity
+        product.thumbnail_url = thumbnail_url
+        product.is_active = is_active
+
+        session.add(product)
+        session.flush()
+
+        self.replace_product_images(session, product_id=product.id, image_urls=image_urls)
+        return product
+
+    def set_product_active(
+        self,
+        session: Session,
+        *,
+        product: Product,
+        is_active: bool,
+    ) -> Product:
+        product.is_active = is_active
+        session.add(product)
+        session.flush()
+        return product
+
+    def soft_delete_product(
+        self,
+        session: Session,
+        *,
+        product: Product,
+    ) -> Product:
+        """
+        Soft delete product by setting deleted_at.
+        Idempotent: if already deleted, keep it.
+        Does NOT commit.
+        """
+        if product.deleted_at is None:
+            product.deleted_at = datetime.now(timezone.utc)
+            session.add(product)
+            session.flush()
+        return product
