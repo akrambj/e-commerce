@@ -7,7 +7,12 @@ from typing import Optional, Sequence, Tuple
 from sqlalchemy import Select, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.infrastructure.db.models import Product, ProductImage  # adjust if your names differ
+from app.infrastructure.db.models import (
+    Product,
+    ProductImage,
+    Order,
+    OrderItem,
+)
 
 
 @dataclass(frozen=True)
@@ -124,7 +129,7 @@ class ProductsRepository:
             select(Product)
             .where(*self._public_visibility_filter())
             .where(Product.slug == slug)
-            .options(selectinload(Product.images))  # adjust relationship name if needed
+            .options(selectinload(Product.images))
         )
 
         return session.execute(stmt).scalars().first()
@@ -194,7 +199,7 @@ class ProductsRepository:
         stmt = select(Product).where(Product.id == product_id)
 
         if include_images:
-            stmt = stmt.options(selectinload(Product.images))  # adjust relationship name if needed
+            stmt = stmt.options(selectinload(Product.images))
 
         return session.execute(stmt).scalars().first()
 
@@ -326,3 +331,149 @@ class ProductsRepository:
             session.add(product)
             session.flush()
         return product
+
+
+class OrdersRepository:
+    """
+    DB access only for orders.
+    - No FastAPI / HTTP
+    - No unified responses
+    - Session is injected
+    """
+
+    # ---------- helpers ----------
+
+    def get_active_products_by_ids(
+        self,
+        session: Session,
+        *,
+        product_ids: Sequence[int],
+    ) -> Sequence[Product]:
+        """
+        Returns purchasable products (active + not deleted) matching product_ids.
+        NOTE: service layer will validate missing ids and quantities.
+        """
+        if not product_ids:
+            return []
+
+        stmt = (
+            select(Product)
+            .where(Product.id.in_(list(product_ids)))
+            .where(Product.is_active.is_(True))
+            .where(Product.deleted_at.is_(None))
+        )
+        return session.execute(stmt).scalars().all()
+
+    # ---------- writes ----------
+
+    def create_order(
+        self,
+        session: Session,
+        *,
+        order: Order,
+        items: Sequence[OrderItem],
+    ) -> Order:
+        """
+        Adds order + items to the session and flushes.
+        Does NOT commit.
+        """
+        session.add(order)
+        session.flush()  # ensures order.id is available
+
+        for item in items:
+            item.order_id = order.id
+            session.add(item)
+
+        session.flush()
+        return order
+
+    def update_order_status(
+        self,
+        session: Session,
+        *,
+        order: Order,
+        status: str,
+    ) -> Order:
+        order.status = status
+        session.add(order)
+        session.flush()
+        return order
+
+    def set_sheets_sync_result(
+        self,
+        session: Session,
+        *,
+        order: Order,
+        status: str,  # "SUCCESS" | "FAILED" | "PENDING"
+        error: str | None = None,
+    ) -> Order:
+        """
+        Updates sheets sync fields.
+        IMPORTANT: does NOT commit (keeps repo contract). Flush only.
+        """
+        order.sheets_status = status
+
+        if status == "SUCCESS":
+            order.sheets_synced_at = datetime.now(timezone.utc)
+            order.sheets_error = None
+        elif status == "FAILED":
+            order.sheets_synced_at = None
+            order.sheets_error = (error or "Unknown sheets error")[:500]
+        else:
+            order.sheets_synced_at = None
+            order.sheets_error = None
+
+        session.add(order)
+        session.flush()
+        return order
+
+    # ---------- reads ----------
+
+    def get_order_by_id(
+        self,
+        session: Session,
+        *,
+        order_id: int,
+        include_items: bool = True,
+    ) -> Optional[Order]:
+        stmt = select(Order).where(Order.id == order_id)
+
+        if include_items:
+            stmt = stmt.options(selectinload(Order.items))
+
+        return session.execute(stmt).scalars().first()
+
+    def list_orders(
+        self,
+        session: Session,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        status: Optional[str] = None,
+        phone_number: Optional[str] = None,
+    ) -> Tuple[Sequence[Order], int]:
+        paging = Page(page=page, page_size=page_size)
+
+        base_stmt = select(Order).order_by(Order.created_at.desc(), Order.id.desc())
+
+        if status:
+            base_stmt = base_stmt.where(Order.status == status)
+
+        if phone_number:
+            pattern = f"%{phone_number.strip()}%"
+            base_stmt = base_stmt.where(Order.phone_number.ilike(pattern))
+
+        count_stmt = select(func.count()).select_from(Order)
+
+        if status:
+            count_stmt = count_stmt.where(Order.status == status)
+
+        if phone_number:
+            pattern = f"%{phone_number.strip()}%"
+            count_stmt = count_stmt.where(Order.phone_number.ilike(pattern))
+
+        total: int = session.execute(count_stmt).scalar_one()
+
+        items_stmt = base_stmt.limit(paging.page_size).offset(paging.offset)
+        items = session.execute(items_stmt).scalars().all()
+        return items, total

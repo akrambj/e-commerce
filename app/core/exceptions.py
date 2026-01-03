@@ -67,3 +67,44 @@ class ProductNotPublicError(ForbiddenError):
 @dataclass
 class ProductSlugConflictError(ConflictError):
     code: str = "product_slug_conflict"
+
+
+# ---------------------------
+# Orders domain errors
+# ---------------------------
+
+@dataclass
+class OrderNotFoundError(NotFoundError):
+    code: str = "order_not_found"
+
+
+@dataclass
+class ProductUnavailableError(ValidationError):
+    """
+    Used when requested products are missing, inactive, or deleted.
+    """
+    code: str = "product_unavailable"
+
+
+@dataclass
+class InsufficientStockError(ValidationError):
+    """
+    Used when a product exists but does not have enough quantity.
+    """
+    code: str = "insufficient_stock"
+
+
+@dataclass
+class InvalidOrderPayloadError(ValidationError):
+    """
+    Used when the order payload is malformed or fails basic validation.
+    """
+    code: str = "invalid_order_payload"
+
+
+@dataclass
+class OrderStatusTransitionError(ValidationError):
+    """
+    Used when an invalid status change is attempted.
+    """
+    code: str = "invalid_order_status_transition"

@@ -6,3 +6,5 @@ sqlalchemy
 psycopg[binary]
 pytest
 alembic
+google-api-python-client
+google-auth

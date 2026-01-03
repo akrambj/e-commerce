@@ -94,3 +94,81 @@ class ProductImage(Base, TimestampMixin):
         UniqueConstraint("product_id", "url", name="uq_product_images_product_id_url"),
         Index("ix_product_images_product_id", "product_id")
     )
+
+class Order(Base, TimestampMixin):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # status lifecycle (v1)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING")
+
+    # customer info (guest)
+    first_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    phone_number: Mapped[str] = mapped_column(String(30), nullable=False)
+
+    # location + delivery
+    wilaya: Mapped[str] = mapped_column(String(80), nullable=False)
+    baladiya: Mapped[str] = mapped_column(String(120), nullable=False)
+    delivery_mode: Mapped[str] = mapped_column(String(20), nullable=False)  # HOME | STOP_DESK
+    address_line: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # totals (DZD integers)
+    items_subtotal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    delivery_fee: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # google sheets sync (v1 direct integration)
+    sheets_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    sheets_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sheets_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    items: Mapped[list["OrderItem"]] = relationship(
+        back_populates="order",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    __table_args__ = (
+        CheckConstraint("items_subtotal >= 0", name="ck_orders_items_subtotal_non_negative"),
+        CheckConstraint("delivery_fee >= 0", name="ck_orders_delivery_fee_non_negative"),
+        CheckConstraint("total_amount >= 0", name="ck_orders_total_amount_non_negative"),
+        Index("ix_orders_status", "status"),
+        Index("ix_orders_created_at", "created_at"),
+        Index("ix_orders_phone_number", "phone_number"),
+    )
+
+
+class OrderItem(Base, TimestampMixin):
+    __tablename__ = "order_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    order_id: Mapped[int] = mapped_column(
+        ForeignKey("orders.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    # snapshot fields
+    product_slug: Mapped[str] = mapped_column(String(150), nullable=False)
+    product_name: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    unit_price: Mapped[int] = mapped_column(Integer, nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    line_total: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    order: Mapped[Order] = relationship(back_populates="items")
+
+    __table_args__ = (
+        CheckConstraint("unit_price >= 0", name="ck_order_items_unit_price_non_negative"),
+        CheckConstraint("quantity >= 1", name="ck_order_items_quantity_positive"),
+        CheckConstraint("line_total >= 0", name="ck_order_items_line_total_non_negative"),
+        Index("ix_order_items_order_id", "order_id"),
+        Index("ix_order_items_product_id", "product_id"),
+    )
