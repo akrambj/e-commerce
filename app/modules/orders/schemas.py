@@ -69,3 +69,14 @@ class OrderOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ---------------------------
+# Output (admin list)
+# ---------------------------
+
+class OrdersListOut(BaseModel):
+    items: List[OrderOut]
+    total: int
+    page: int
+    page_size: int

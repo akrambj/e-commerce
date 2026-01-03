@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Sequence
+from typing import Dict, List, Sequence, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -42,6 +42,37 @@ class CreateOrderIn:
 class OrdersService:
     def __init__(self, repo: OrdersRepository) -> None:
         self.repo = repo
+
+    # ---------------------------
+    # Admin reads (Step 21.1)
+    # ---------------------------
+
+    def list_orders(
+        self,
+        db: Session,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        status: str | None = None,
+        phone_number: str | None = None,
+    ) -> Tuple[Sequence[Order], int]:
+        return self.repo.list_orders(
+            db,
+            page=page,
+            page_size=page_size,
+            status=status,
+            phone_number=phone_number,
+        )
+
+    def get_order_by_id(self, db: Session, *, order_id: int) -> Order:
+        order = self.repo.get_order_by_id(db, order_id=order_id, include_items=True)
+        if not order:
+            raise OrderNotFoundError(message="Order not found")
+        return order
+
+    # ---------------------------
+    # Public writes
+    # ---------------------------
 
     def create_order(self, db: Session, payload: CreateOrderIn) -> Order:
         self._validate_create_payload(payload)
