@@ -14,6 +14,7 @@ from app.core.exceptions import (
 )
 from app.infrastructure.db.models import Order, OrderItem, Product
 from app.infrastructure.db.repository import OrdersRepository
+from app.modules.orders.sheets_sync import try_sync_order_to_sheets
 
 
 ALLOWED_DELIVERY_MODES = {"HOME", "STOP_DESK"}
@@ -69,6 +70,32 @@ class OrdersService:
         if not order:
             raise OrderNotFoundError(message="Order not found")
         return order
+
+    # ---------------------------
+    # Sheets retry (Step 21.4)
+    # ---------------------------
+
+    def retry_sheets_sync(self, db: Session, *, order_id: int) -> Order:
+        """
+        Best-effort manual retry of Google Sheets sync.
+        - Does not fail the request if Sheets fails.
+        - Updates sheets_status/sheets_error via repo helper inside try_sync_order_to_sheets.
+        Returns the latest order state.
+        """
+        order = self.repo.get_order_by_id(db, order_id=order_id, include_items=True)
+        if not order:
+            raise OrderNotFoundError(message="Order not found")
+
+        try:
+            try_sync_order_to_sheets(db, order_id=order_id, repo=self.repo)
+        except Exception:
+            # Never break admin endpoint due to external integration surprises
+            pass
+
+        updated = self.repo.get_order_by_id(db, order_id=order_id, include_items=True)
+        if not updated:
+            raise OrderNotFoundError(message="Order not found")
+        return updated
 
     # ---------------------------
     # Public writes

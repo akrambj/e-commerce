@@ -16,8 +16,9 @@ from app.modules.products.schemas import (
     ProductUpdateIn,
 )
 from app.modules.products.service import ProductsService
+from app.api.dependencies.admin_auth import require_admin
 
-router = APIRouter(prefix="/admin/products", tags=["admin-products"])
+router = APIRouter(prefix="/admin/products", tags=["admin-products"], dependencies=[Depends(require_admin)])
 
 
 def get_products_service() -> ProductsService:

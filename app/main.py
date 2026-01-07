@@ -46,6 +46,9 @@ def health():
         "version": settings.version,
         "environment": settings.env,
         "log_level": settings.log_level,
+        "email": settings.admin_email,
+        "expries": settings.jwt_access_token_expires_minutes,
+        "secret length:": len(settings.jwt_secret_key)
     }
 
 

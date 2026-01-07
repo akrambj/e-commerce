@@ -8,8 +8,10 @@ from app.infrastructure.db.session import get_db
 from app.infrastructure.db.repository import OrdersRepository
 from app.modules.orders.schemas import OrderOut, OrdersListOut
 from app.modules.orders.service import OrdersService
+from app.api.dependencies.admin_auth import require_admin
 
-router = APIRouter(prefix="/admin/orders", tags=["admin:orders"])
+
+router = APIRouter(prefix="/admin/orders", tags=["admin:orders"], dependencies=[Depends(require_admin)])
 
 
 def get_orders_service() -> OrdersService:
@@ -53,10 +55,6 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
     return ok(data, message="Order fetched")
 
 
-# ---------------------------
-# Status transitions (Step 21.3)
-# ---------------------------
-
 @router.patch("/{order_id}/confirm", response_model=None)
 def confirm_order(order_id: int, db: Session = Depends(get_db)):
     service = get_orders_service()
@@ -82,3 +80,16 @@ def deliver_order(order_id: int, db: Session = Depends(get_db)):
 
     data = OrderOut.model_validate(order).model_dump()
     return ok(data, message="Order delivered")
+
+
+# ---------------------------
+# Sheets retry (Step 21.4)
+# ---------------------------
+
+@router.post("/{order_id}/sheets/retry", response_model=None)
+def retry_sheets_sync(order_id: int, db: Session = Depends(get_db)):
+    service = get_orders_service()
+    order = service.retry_sheets_sync(db, order_id=order_id)
+
+    data = OrderOut.model_validate(order).model_dump()
+    return ok(data, message="Sheets sync retried")

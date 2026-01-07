@@ -8,3 +8,4 @@ pytest
 alembic
 google-api-python-client
 google-auth
+PyJWT
