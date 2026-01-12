@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from typing import Optional
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.orm import Session
 
+from app.api.dependencies.admin_auth import require_admin
+from app.core.exceptions import ValidationError
 from app.core.responses import ok
 from app.infrastructure.db.repository import ProductsRepository
 from app.infrastructure.db.session import get_db
+from app.infrastructure.integrations.cloudinary.uploader import (
+    upload_product_image,
+    upload_product_thumbnail,
+)
 from app.modules.products.schemas import (
     PageMeta,
     ProductCreateIn,
@@ -16,9 +23,12 @@ from app.modules.products.schemas import (
     ProductUpdateIn,
 )
 from app.modules.products.service import ProductsService
-from app.api.dependencies.admin_auth import require_admin
 
-router = APIRouter(prefix="/admin/products", tags=["admin-products"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/admin/products",
+    tags=["admin-products"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 def get_products_service() -> ProductsService:
@@ -165,3 +175,69 @@ def delete_admin_product(
     product = service.get_product_by_id(db, product_id=product_id)
     data = ProductOut.model_validate(product)
     return ok(data, message="Product deleted")
+
+
+# ---------------------------
+# Admin uploads (Cloudinary V1)
+# ---------------------------
+
+@router.post("/{product_id}/thumbnail")
+async def upload_admin_product_thumbnail(
+    product_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    service = get_products_service()
+
+    # Ensure product exists
+    product = service.get_product_by_id(db, product_id=product_id)
+
+    public_id = f"product_{product.id}/thumbnail"
+    url = await upload_product_thumbnail(file=file, public_id=public_id)
+
+    try:
+        service.set_product_thumbnail_url(db, product_id=product_id, thumbnail_url=url)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    product = service.get_product_by_id(db, product_id=product_id)
+    data = ProductOut.model_validate(product)
+    return ok(data, message="Thumbnail uploaded")
+
+
+@router.post("/{product_id}/images")
+async def upload_admin_product_images(
+    product_id: int,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    if not files:
+        raise ValidationError("No files uploaded.", details={"files": 0})
+
+    # V1 guardrail
+    if len(files) > 10:
+        raise ValidationError("Too many images. Max is 10.", details={"max": 10, "got": len(files)})
+
+    service = get_products_service()
+
+    # Ensure product exists
+    product = service.get_product_by_id(db, product_id=product_id)
+
+    uploaded_urls: list[str] = []
+    for f in files:
+        public_id = f"product_{product.id}/img_{uuid4().hex}"
+        url = await upload_product_image(file=f, public_id=public_id)
+        uploaded_urls.append(url)
+
+    try:
+        service.append_product_images(db, product_id=product_id, new_image_urls=uploaded_urls)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    product = service.get_product_by_id(db, product_id=product_id)
+    data = ProductOut.model_validate(product)
+    return ok(data, message="Images uploaded")

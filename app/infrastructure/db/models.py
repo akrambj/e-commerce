@@ -56,7 +56,7 @@ class Product(Base, TimestampMixin, SoftDeleteMixin):
     category: Mapped[str] = mapped_column(String(80), nullable=False, default="uncategorized")
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    thumbnail_url: Mapped[str] = mapped_column(Text, nullable=False, default=True)
+    thumbnail_url: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 

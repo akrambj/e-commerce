@@ -33,6 +33,16 @@ class Settings(BaseSettings):
         alias="JWT_ACCESS_TOKEN_EXPIRES_MINUTES",
     )
 
+    cloudinary_cloud_name: str = Field(..., alias="CLOUDINARY_CLOUD_NAME")
+    cloudinary_api_key: str = Field(..., alias="CLOUDINARY_API_KEY")
+    cloudinary_api_secret: str = Field(..., alias="CLOUDINARY_API_SECRET")
+
+    cloudinary_products_folder: str = Field(
+    default="purity/products",
+    alias="CLOUDINARY_PRODUCTS_FOLDER",
+    )   
+
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

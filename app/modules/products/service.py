@@ -179,3 +179,29 @@ class ProductsService:
             raise ProductNotFoundError("Product not found.", details={"product_id": product_id})
 
         return self.repo.soft_delete_product(db, product=product)
+
+    # ---------- media methods (Cloudinary V1) ----------
+
+    def set_product_thumbnail_url(self, db: Session, *, product_id: int, thumbnail_url: str) -> Product:
+        product = self.repo.get_product_by_id(db, product_id=product_id, include_images=False)
+        if product is None:
+            raise ProductNotFoundError("Product not found.", details={"product_id": product_id})
+
+        product.thumbnail_url = thumbnail_url
+        db.add(product)
+        db.flush()
+        return product
+
+    def append_product_images(self, db: Session, *, product_id: int, new_image_urls: Sequence[str]) -> None:
+        """
+        V1 behavior: append by doing a replace-all (existing + new).
+        This keeps ordering stable via `position`.
+        """
+        product = self.repo.get_product_by_id(db, product_id=product_id, include_images=True)
+        if product is None:
+            raise ProductNotFoundError("Product not found.", details={"product_id": product_id})
+
+        existing_urls = [img.url for img in (product.images or [])]
+        combined = list(existing_urls) + [u for u in new_image_urls if u]
+
+        self.repo.replace_product_images(db, product_id=product_id, image_urls=combined)

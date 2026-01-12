@@ -9,3 +9,6 @@ alembic
 google-api-python-client
 google-auth
 PyJWT
+cloudinary
+python-multipart
+pillow
